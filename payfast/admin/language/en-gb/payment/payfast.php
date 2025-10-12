@@ -21,11 +21,11 @@ $_['text_debug']     = 'Debug';
 $_['text_edit']      = 'Edit Payfast Aggregation';
 
 // Entry
-$_['entry_payfast_merchant_id']  = 'Payfast Aggregation Merchant ID:';
-$_['entry_payfast_merchant_key'] = 'Payfast Aggregation Merchant Key:';
+$_['entry_payfast_merchant_id']  = 'Merchant ID:';
+$_['entry_payfast_merchant_key'] = 'Merchant Key:';
 $_['entry_payfast_sandbox']      = 'Sandbox Mode:';
 $_['entry_payfast_debug']        = 'Debug:';
-$_['entry_payfast_passphrase']   = 'Payfast Aggregation Secure Passphrase:';
+$_['entry_payfast_passphrase']   = 'Secure Passphrase:';
 
 $_['entry_geo_zone']   = 'Geo Zone:';
 $_['entry_status']     = 'Status:';

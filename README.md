@@ -1,13 +1,13 @@
 # opencart-aggregation
 
-## Payfast Aggregation module v1.3.0 for OpenCart v4.1.0.3
+## Payfast Aggregation module v1.3.1 for OpenCart v4.1.0.3
 
 This is the Payfast Aggregation module for OpenCart. Please feel free
 to [contact the Payfast support team](https://payfast.io/contact/) should you require any assistance.
 
 ## Installation
 
-1. Download **[payfast.ocmod.zip](https://github.com/Payfast/opencart-aggregation/releases/download/v1.3.0/payfast.ocmod.zip)**.
+1. Download **[payfast.ocmod.zip](https://github.com/Payfast/opencart-aggregation/releases/download/v1.3.1/payfast.ocmod.zip)**.
 2. Login to the admin section of your OpenCart installation.
 3. Navigate to the Installer under Extensions.
 4. Upload the Compressed Payfast Folder (payfast.ocmod.zip).

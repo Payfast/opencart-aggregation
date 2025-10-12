@@ -42,8 +42,8 @@ class Payfast extends Controller
                 'payment_payfast_sandbox'
             ) ? 'sandbox' : 'www') . '.payfast.co.za';
         $this->softwareName       = 'OpenCart';
-        $this->softwareVer        = '4.0.2.3';
-        $this->moduleVer          = '1.3.0';
+        $this->softwareVer        = '4.1.0.3';
+        $this->moduleVer          = '1.3.1';
         $this->softwareModuleName = 'PF_OpenCart';
     }
 
