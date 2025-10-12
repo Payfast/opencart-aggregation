@@ -1,5 +1,11 @@
 # Changelog
 
+## [[v1.3.1]](https://github.com/Payfast/opencart-aggregation/releases/tag/v1.3.1)
+
+### Added
+
+- Payfast Aggregation label adjustments.
+
 ## [[v1.3.0]](https://github.com/Payfast/opencart-aggregation/releases/tag/v1.3.0)
 
 ### Added
