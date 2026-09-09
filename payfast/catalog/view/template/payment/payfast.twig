@@ -3,40 +3,123 @@
 {# Except as expressly indicated in this licence, you may not use, copy, modify or distribute this plugin / code or part thereof in any way. #}
 
 {% if sandbox == '1' %}
-  <div class="alert alert-danger alert-dismissible"><em class="fa fa-exclamation-circle"></em> {{ text_sandbox }}</div>
+    <div class="alert alert-danger alert-dismissible"><em class="fa fa-exclamation-circle"></em> {{ text_sandbox }}
+    </div>
 {% endif %}
 <form action="{{ action }}" method="post">
-  <input type="hidden" name="merchant_id" value="{{ merchant_id }}">
-  <input type="hidden" name="merchant_key" value="{{ merchant_key }}">
-  <input type="hidden" name="return_url" value="{{ return_url }}">
-  <input type="hidden" name="cancel_url" value="{{ cancel_url }}">
-  <input type="hidden" name="notify_url" value="{{ notify_url }}">
-  <input type="hidden" name="name_first" value="{{ name_first }}">
-  <input type="hidden" name="name_last" value="{{ name_last  }}">
-  <input type="hidden" name="email_address" value="{{ email_address }}">
-  <input type="hidden" name="m_payment_id" value="{{ m_payment_id }}">
-  <input type="hidden" name="amount" value="{{ amount }}">
-  <input type="hidden" name="item_name" value="{{ item_name }}">
-  <input type="hidden" name="item_description" value="{{ item_description }}">
-  <input type="hidden" name="custom_str1" value="{{ custom_str1 }}">
+    <input type="hidden" name="merchant_id" value="{{ merchant_id }}">
+    <input type="hidden" name="merchant_key" value="{{ merchant_key }}">
+    <input type="hidden" name="return_url" value="{{ return_url }}">
+    <input type="hidden" name="cancel_url" value="{{ cancel_url }}">
+    <input type="hidden" name="notify_url" value="{{ notify_url }}">
+    <input type="hidden" name="name_first" value="{{ name_first }}">
+    <input type="hidden" name="name_last" value="{{ name_last }}">
+    <input type="hidden" name="email_address" value="{{ email_address }}">
+    <input type="hidden" name="m_payment_id" value="{{ m_payment_id }}">
+    <input type="hidden" name="amount" value="{{ amount }}">
+    <input type="hidden" name="item_name" value="{{ item_name }}">
+    <input type="hidden" name="item_description" value="{{ item_description }}">
+    <input type="hidden" name="custom_str1" value="{{ custom_str1 }}">
 
-  {% if recurring %}
-  <input type="hidden" name="custom_str2" value="{{ custom_str2 }}">
-  <input type="hidden" name="custom_str3" value="{{ custom_str3 }}">
-  <input type="hidden" name="custom_str4" value="{{ custom_str4 }}">
-  <input type="hidden" name="custom_str5" value="{{ custom_str5 }}">
-  <input type="hidden" name="subscription_type" value="1">
-  <input type="hidden" name="billing_date" value="{{ billing_date }}">
-  <input type="hidden" name="recurring_amount" value="{{ recurring_amount }}">
-  <input type="hidden" name="frequency" value="{{ frequency }}">
-  <input type="hidden" name="cycles" value="{{ cycles }}">
-  {% endif %}
+    {% if recurring %}
+        <input type="hidden" name="custom_str2" value="{{ custom_str2 }}">
+        <input type="hidden" name="custom_str3" value="{{ custom_str3 }}">
+        <input type="hidden" name="custom_str4" value="{{ custom_str4 }}">
+        <input type="hidden" name="custom_str5" value="{{ custom_str5 }}">
+        <input type="hidden" name="subscription_type" value="1">
+        <input type="hidden" name="billing_date" value="{{ billing_date }}">
+        <input type="hidden" name="recurring_amount" value="{{ recurring_amount }}">
+        <input type="hidden" name="frequency" value="{{ frequency }}">
+        <input type="hidden" name="cycles" value="{{ cycles }}">
+    {% endif %}
 
-  <input type="hidden" name="signature" value="{{ signature }}">
+    <input type="hidden" name="signature" value="{{ signature }}">
 
-  <div class="buttons">
-    <div class="pull-right">
-      <input type="submit" value="{{ button_confirm }}" class="btn btn-primary">
+    <div class="buttons">
+        <div class="pull-right">
+            <input type="submit" value="{{ button_confirm }}" class="btn btn-primary">
+        </div>
     </div>
-  </div>
 </form>
+
+<script type="text/javascript">
+// Delegated on `document` (not the form/button directly) so this keeps working no
+// matter how many times OpenCart's checkout AJAX replaces/reloads the surrounding
+// #checkout-confirm markup - there is nothing here that depends on IDs existing in
+// the rendered HTML, only on a Payfast form being present somewhere in the DOM.
+$(document).on('submit', 'form[action*="payfast.co.za"]', function (e) {
+    e.preventDefault();
+
+    var $form = $(this);
+
+    // Guard against double-submits while the resync request is in flight.
+    if ($form.data('pf-submitting')) {
+        return;
+    }
+
+    $form.data('pf-submitting', true);
+    $form.find(':submit').prop('disabled', true);
+
+    $.ajax({
+        url: 'index.php?route=extension/payfast/payment/payfast|refreshSignature',
+        type: 'post',
+        dataType: 'json',
+        cache: false,
+        success: function (data) {
+            if (data && data.amount && data.signature) {
+                $form.find('input[name="amount"]').val(data.amount);
+                $form.find('input[name="signature"]').val(data.signature);
+            }
+        },
+        complete: function () {
+            // Native submit() intentionally does NOT re-fire the jQuery 'submit'
+            // handler above, so this cannot loop - it goes straight to Payfast with
+            // whatever amount/signature values are now in the form.
+            $form[0].submit();
+        }
+    });
+});
+
+// The checkout page's #checkout-confirm block (which is what actually contains
+// this form) is only ever re-fetched via AJAX in response to explicit user
+// actions elsewhere on the page (changing shipping/payment method, address,
+// etc. - see payment_method.twig/shipping_method.twig/etc). There is nothing
+// in core checkout that re-fetches it when the customer simply *returns* to an
+// already-open checkout tab/page - e.g. by adding a second product on another
+// page/tab and then pressing the browser Back button. In that case the browser
+// can restore the whole document from the back/forward cache (bfcache) or the
+// tab is simply re-focused, so *no request reaches the server at all* and this
+// form's hidden amount/signature fields stay frozen at whatever they were the
+// first time the order was created - even though the visible cart/header total
+// elsewhere on the page updates independently. Guard with a flag on `window` so
+// re-running this script (every time #checkout-confirm reloads) doesn't stack
+// duplicate listeners.
+if (!window.pfConfirmRefreshBound) {
+    window.pfConfirmRefreshBound = true;
+
+    var pfRefreshConfirm = function () {
+        var $confirm = $('#checkout-confirm');
+
+        if ($confirm.length) {
+            $confirm.load('index.php?route=checkout/confirm.confirm&language={{ language }}');
+        }
+    };
+
+    // Fires when the page is restored from bfcache (event.persisted === true),
+    // e.g. after using the browser Back/Forward buttons.
+    window.addEventListener('pageshow', function (e) {
+        if (e.persisted) {
+            pfRefreshConfirm();
+        }
+    });
+
+    // Fires when switching back to this tab/window without a full navigation at
+    // all (e.g. adding a product in another tab, then alt-tabbing back here).
+    document.addEventListener('visibilitychange', function () {
+        if (document.visibilityState === 'visible') {
+            pfRefreshConfirm();
+        }
+    });
+}
+</script>
+

@@ -31,7 +31,7 @@ use Opencart\System\Engine\Controller;
  */
 class Payfast extends Controller
 {
-    private array  $error     = [];
+    private array $error = [];
     private string $tableName = DB_PREFIX . 'payfast_transaction';
     public const LANGUAGE_LITERAL    = 'extension/payfast/payment/payfast';
     public const MARKETPLACE_LITERAL = 'marketplace/extension';
