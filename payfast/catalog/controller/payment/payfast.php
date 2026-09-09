@@ -24,9 +24,9 @@ class Payfast extends Controller
 {
     public string $pfHost = '';
     public const CHECKOUT_ORDER_LITERAL = 'checkout/order';
-    public string $softwareName       = '';
-    public string $softwareVer        = '';
-    public string $moduleVer          = '';
+    public string $softwareName = '';
+    public string $softwareVer = '';
+    public string $moduleVer = '';
     public string $softwareModuleName = '';
     private const STATUS_COMPLETED = 'COMPLETE';
     private const STATUS_CANCELLED = 'CANCELLED';
@@ -43,7 +43,7 @@ class Payfast extends Controller
             ) ? 'sandbox' : 'www') . '.payfast.co.za';
         $this->softwareName       = 'OpenCart';
         $this->softwareVer        = '4.1.0.3';
-        $this->moduleVer          = '1.3.1';
+        $this->moduleVer          = '1.4.0';
         $this->softwareModuleName = 'PF_OpenCart';
     }
 
@@ -52,15 +52,38 @@ class Payfast extends Controller
      */
     public function index(): mixed
     {
+        // Prevent browser caching of this layout block
+        if (!headers_sent()) {
+            header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+            header('Cache-Control: post-check=0, pre-check=0', false);
+            header('Pragma: no-cache');
+            header('Expires: Mon, 26 Jul 1997 05:00:00 GMT');
+        }
+
+        $this->load->model(self::CHECKOUT_ORDER_LITERAL);
+
+        // Keep oc_order / oc_order_total in step with the live cart before we render
+        // the form (see syncOrderWithCart() for details). This is the same routine
+        // used by refreshSignature() so both entry points stay consistent.
+        if (isset($this->session->data['order_id'])) {
+            $this->syncOrderWithCart((int)$this->session->data['order_id']);
+        }
+
         $this->load->language('extension/payfast/payment/payfast');
         $payfast_data                   = [];
         $payfast_data['text_sandbox']   = $this->language->get('text_sandbox');
         $payfast_data['button_confirm'] = $this->language->get('button_confirm');
         $payfast_data['sandbox']        = $this->config->get('payment_payfast_sandbox');
         $payfast_data['action']         = 'https://' . $this->pfHost . '/eng/process';
-        $this->load->model(self::CHECKOUT_ORDER_LITERAL);
+        // Needed client-side so the bfcache/tab-refocus resync script (see the
+        // template) can rebuild the checkout/confirm.confirm AJAX URL exactly the
+        // way the rest of core checkout's own twig files do (shipping_method.twig,
+        // payment_method.twig, etc. all pass &language={{ language }}).
+        $payfast_data['language']       = $this->config->get('config_language');
+
         $order_info = $this->model_checkout_order->getOrder($this->session->data['order_id']);
         $load_view  = '';
+
         if ($order_info) {
             $order_info['currency_code'] = 'ZAR';
             $payfast_data['recurring']   = false;
@@ -176,7 +199,7 @@ class Payfast extends Controller
         if (!$pf_error) {
             $payfastRequest->pflog('Check data against internal order');
             if (empty($pf_data['token']) || strtotime($pf_data['custom_str2']) <=
-                strtotime(gmdate('Y-m-d') . '+ 2 days')) {
+                                            strtotime(gmdate('Y-m-d') . '+ 2 days')) {
                 $preAmount = $this->currency->format(
                     $order_info['total'],
                     $order_info['currency_code'],
@@ -187,7 +210,7 @@ class Payfast extends Controller
             }
 
             if (!empty($pf_data['token']) && strtotime($pf_data['custom_str2'])
-                > strtotime(gmdate('Y-m-d') . '+ 2 days')) {
+                                             > strtotime(gmdate('Y-m-d') . '+ 2 days')) {
                 $amount = filter_var(number_format($order_info['total'], 2), FILTER_SANITIZE_NUMBER_INT) / 100;
             }
 
@@ -357,10 +380,13 @@ class Payfast extends Controller
      *
      * @param array $order_info
      * @param array $payfast_data
+     * @param bool  $persist Whether to insert new order_recurring rows. Should be
+     *                       false when merely re-signing an already-rendered form
+     *                       (e.g. from refreshSignature()) to avoid duplicate rows.
      *
      * @return array
      */
-    private function handleRecurringP(array $order_info, array $payfast_data): array
+    private function handleRecurringP(array $order_info, array $payfast_data, bool $persist = true): array
     {
         $recurring_data = [];
 
@@ -388,25 +414,218 @@ class Payfast extends Controller
                     'custom_str5'      => $custom_str5,
                     'cycles'           => $cycles,
                 ];
-                $this->db->query(
-                    'INSERT INTO `' . DB_PREFIX . "order_recurring` SET `order_id` = '" .
-                    $this->session->data['order_id'] . "', `reference` = '" .
-                    $this->session->data['order_id'] . "',
-                                      `product_id` = '" . $product['product_id'] . "',
-                                      `product_name` = '" . $product['name'] . "', `product_quantity` = '" .
-                    $product['quantity'] . "', `recurring_id` = '" .
-                    $product['recurring']['recurring_id'] . "',
-                                      `recurring_name` = '" . $product['recurring']['name'] .
-                    "', `recurring_description` = '" . $product['recurring']['name'] . "',
-                                      `recurring_frequency` = '" . $frequency . "', `recurring_cycle` = '1',
-                                       `recurring_duration` = '" . $cycles . "',
-                                      `recurring_price` = '" . $recurring_amount . "', `status` = '6',
-                                       `date_added` = NOW()"
-                );
+
+                if ($persist) {
+                    $this->db->query(
+                        'INSERT INTO `' . DB_PREFIX . "order_recurring` SET `order_id` = '" .
+                        $this->session->data['order_id'] . "', `reference` = '" .
+                        $this->session->data['order_id'] . "',
+                                          `product_id` = '" . $product['product_id'] . "',
+                                          `product_name` = '" . $product['name'] . "', `product_quantity` = '" .
+                        $product['quantity'] . "', `recurring_id` = '" .
+                        $product['recurring']['recurring_id'] . "',
+                                          `recurring_name` = '" . $product['recurring']['name'] .
+                        "', `recurring_description` = '" . $product['recurring']['name'] . "',
+                                          `recurring_frequency` = '" . $frequency . "', `recurring_cycle` = '1',
+                                           `recurring_duration` = '" . $cycles . "',
+                                          `recurring_price` = '" . $recurring_amount . "', `status` = '6',
+                                           `date_added` = NOW()"
+                    );
+                }
             }
         }
 
         return $this->buildPayArray($order_info, $payfast_data, $recurring_data);
+    }
+
+    /**
+     * Re-sync the persisted oc_order / oc_order_total rows for the given order so
+     * that they reflect the live session cart. This is the single source of truth
+     * used by both index() (initial form render) and refreshSignature() (the
+     * click-time AJAX re-sign), guaranteeing the DB row that callback() later
+     * validates against is never stale.
+     *
+     * @param int $order_id
+     *
+     * @return array|null The fresh order info, or null if the order no longer exists.
+     */
+    private function syncOrderWithCart(int $order_id): ?array
+    {
+        $order_info = $this->model_checkout_order->getOrder($order_id);
+
+        if (!$order_info) {
+            unset($this->session->data['order_id']);
+
+            return null;
+        }
+
+        $void_status_id = (int)$this->config->get('config_void_status_id');
+
+        // A pending order sits at order_status_id == 0 the very first time it is
+        // created. But editOrder() itself always calls addHistory($order_id,
+        // config_void_status_id) as its own "step 1: void the order" before
+        // rewriting it - which leaves order_status_id sitting on the *void* status
+        // (not back at 0) once the sync completes. If we only ever treated 0 as
+        // "still a draft", every sync after the very first one would see that void
+        // status here, wrongly conclude the order had "progressed", and skip the
+        // resync entirely - a status trap that reproduces exactly the stale hidden
+        // field symptom this method exists to prevent. Both 0 and the void status
+        // are still "draft" order states as far as Payfast is concerned, so treat
+        // either as re-syncable. Force it back to 0 first so editOrder()'s own
+        // internal merge/compare logic (and any other code path reading the order
+        // in the meantime) is unlocked and works from a clean baseline.
+        if ($order_info['order_status_id'] != 0 && $order_info['order_status_id'] != $void_status_id) {
+            return $order_info;
+        }
+
+        if ((int)$order_info['order_status_id'] !== 0) {
+            $this->db->query("UPDATE `" . DB_PREFIX . "order` SET `order_status_id` = '0' WHERE `order_id` = '" . (int)$order_id . "'");
+
+            $order_info['order_status_id'] = 0;
+        }
+
+        $this->load->model('checkout/cart');
+
+        // Rebuild the live totals exactly the way native checkout does.
+        $totals = [];
+        $taxes  = $this->cart->getTaxes();
+        $total  = 0;
+
+        // NOTE: must be invoked via the closure property directly (not the normal
+        // ->getTotals(...) method-call syntax). Model proxies route ->method() calls
+        // through __call(), which cannot forward arguments by reference - $total would
+        // silently stay 0 and we'd end up writing a zeroed total into oc_order below.
+        ($this->model_checkout_cart->getTotals)($totals, $taxes, $total);
+
+        // Compare the live cart total against the (possibly stale) DB order total.
+        if (abs((float)$order_info['total'] - (float)$total) <= 0.01) {
+            return $order_info;
+        }
+
+        $order_products = [];
+
+        foreach ($this->model_checkout_cart->getProducts() as $product) {
+            $option_data = [];
+
+            foreach ($product['option'] as $option) {
+                $option_data[] = [
+                    'product_option_id'       => $option['product_option_id'],
+                    'product_option_value_id' => $option['product_option_value_id'],
+                    'option_id'                => $option['option_id'] ?? 0,
+                    'option_value_id'          => $option['option_value_id'] ?? 0,
+                    'name'                     => $option['name'],
+                    'value'                    => $option['value'],
+                    'type'                     => $option['type']
+                ];
+            }
+
+            $subscription_data = [];
+
+            if (!empty($product['subscription'])) {
+                $subscription_data = [
+                    'subscription_plan_id' => $product['subscription']['subscription_plan_id'],
+                    'name'                  => $product['subscription']['name'],
+                    'trial_price'           => $product['subscription']['trial_price'],
+                    'trial_tax'             => $this->tax->getTax($product['subscription']['trial_price'], $product['tax_class_id']),
+                    'trial_frequency'       => $product['subscription']['trial_frequency'],
+                    'trial_cycle'           => $product['subscription']['trial_cycle'],
+                    'trial_duration'        => $product['subscription']['trial_duration'],
+                    'trial_remaining'       => $product['subscription']['trial_remaining'],
+                    'trial_status'          => $product['subscription']['trial_status'],
+                    'price'                 => $product['subscription']['price'],
+                    'tax'                   => $this->tax->getTax($product['subscription']['price'], $product['tax_class_id']),
+                    'frequency'             => $product['subscription']['frequency'],
+                    'cycle'                 => $product['subscription']['cycle'],
+                    'duration'              => $product['subscription']['duration']
+                ];
+            }
+
+            $order_products[] = [
+                'product_id'   => $product['product_id'],
+                'master_id'    => $product['master_id'],
+                'name'         => $product['name'],
+                'model'        => $product['model'],
+                'option'       => $option_data,
+                'subscription' => $subscription_data,
+                'download'     => $product['download'],
+                'quantity'     => $product['quantity'],
+                'subtract'     => $product['subtract'],
+                'price'        => $product['price'],
+                'total'        => $product['total'],
+                'tax'          => $this->tax->getTax($product['price'], $product['tax_class_id']),
+                'reward'       => $product['reward']
+            ];
+        }
+
+        // editOrder() merges any keys we don't provide with the existing order row
+        // (customer/address/payment/shipping details are untouched), and fully
+        // replaces order_product / order_total rows with the values below.
+        $order_data = [
+            'products' => $order_products,
+            'totals'   => $totals,
+            'taxes'    => $taxes,
+            'total'    => $total
+        ];
+
+        if (!empty($this->session->data['vouchers'])) {
+            $order_data['vouchers'] = $this->session->data['vouchers'];
+        }
+
+        $this->model_checkout_order->editOrder($order_id, $order_data);
+
+        return $this->model_checkout_order->getOrder($order_id);
+    }
+
+    /**
+     * AJAX endpoint hit at the moment the customer clicks "Confirm Order" on the
+     * Payfast payment form. It re-syncs the DB order against the live cart (in case
+     * the DOM form has gone stale) and returns a freshly signed amount/signature
+     * pair so the browser can patch the hidden fields before submitting to Payfast.
+     *
+     * @return void
+     */
+    public function refreshSignature(): void
+    {
+        $this->load->model(self::CHECKOUT_ORDER_LITERAL);
+
+        $json = [];
+
+        if (empty($this->session->data['order_id'])) {
+            $json['error'] = 'No active order found in session.';
+        } else {
+            $order_info = $this->syncOrderWithCart((int)$this->session->data['order_id']);
+
+            if (!$order_info) {
+                $json['error'] = 'Order could not be found or has already been processed.';
+            } else {
+                $order_info['currency_code'] = 'ZAR';
+                $payfast_data = ['recurring' => false];
+
+                $passphrase = $this->config->get('payment_payfast_passphrase');
+
+                // Recurring order_recurring rows were already inserted the first time
+                // the payment form was rendered by index() - do not insert duplicates.
+                $pay_array = $this->handleRecurringP($order_info, $payfast_data, false);
+
+                $secure_string = '';
+
+                foreach ($pay_array as $pay_array_key => $value) {
+                    $secure_string .= $pay_array_key . '=' . urlencode(trim($value)) . '&';
+                }
+
+                if (!empty($passphrase)) {
+                    $secure_string = $secure_string . 'passphrase=' . urlencode($passphrase);
+                } else {
+                    $secure_string = substr($secure_string, 0, -1);
+                }
+
+                $json['amount']    = $pay_array['amount'];
+                $json['signature'] = md5($secure_string);
+            }
+        }
+
+        $this->response->addHeader('Content-Type: application/json');
+        $this->response->setOutput(json_encode($json));
     }
 
     /**
@@ -418,7 +637,7 @@ class Payfast extends Controller
      *
      * @return array
      */
-    private function buildPayArray(array $order_info, array $payfast_data, array $recurring_data = null): array
+    private function buildPayArray(array $order_info, array $payfast_data, ?array $recurring_data = null): array
     {
         $merchant_id      = $this->config->get('payment_payfast_merchant_id');
         $merchant_key     = $this->config->get('payment_payfast_merchant_key');
@@ -439,10 +658,39 @@ class Payfast extends Controller
             false
         );
         $amount           = number_format($preAmount, 2, '.', '');
-        $item_name        = $this->config->get('config_name') . ' - #' . $this->session->data['order_id'];
-        $item_description = $this->language->get('text_sale_description');
+
+        // Build item_name/item_description straight from the live cart instead of a
+        // generic "store name - #order_id" placeholder. Previously these were joined
+        // with commas, but Payfast's signature hashing runs over the raw urlencode()'d
+        // POST values - a comma inside item_name/item_description survives urlencode()
+        // as %2C, which is perfectly valid, but some intermediary WAF/proxy layers (and
+        // older Payfast-side parsers) normalise/strip stray commas in these two fields
+        // before hashing, producing a value that no longer matches what OpenCart signed
+        // -> "Signature Mismatch". Pipe/hyphen separators avoid that class of problem
+        // entirely since they are never treated as list delimiters anywhere in the chain.
+        $names  = [];
+        $models = [];
+
+        foreach ($this->cart->getProducts() as $product) {
+            if ($product['name'] !== '') {
+                $names[] = $product['name'];
+            }
+
+            if (!empty($product['model']) && !in_array($product['model'], $models, true)) {
+                $models[] = $product['model'];
+            }
+        }
+
+        $item_name        = $names ? implode(' | ', $names) : ($this->config->get('config_name') . ' - #' . $this->session->data['order_id']);
+        $item_description = $models ? implode(' | ', $models) : $this->language->get('text_sale_description');
+
+        // Decode entities *before* truncating so we never cut a multi-byte HTML
+        // entity in half, then hard-cap to Payfast's documented field lengths.
+        $item_name        = mb_substr(html_entity_decode($item_name, ENT_QUOTES, 'UTF-8'), 0, 100);
+        $item_description = mb_substr(html_entity_decode($item_description, ENT_QUOTES, 'UTF-8'), 0, 255);
+
         $custom_str1      = $this->softwareName . '_' . $this->softwareVer .
-            '_' . $this->moduleVer;
+                            '_' . $this->moduleVer;
         $pay_array        = [
             'merchant_id'      => $merchant_id,
             'merchant_key'     => $merchant_key,
@@ -454,8 +702,8 @@ class Payfast extends Controller
             'email_address'    => $email_address,
             'm_payment_id'     => $m_payment_id,
             'amount'           => $amount,
-            'item_name'        => html_entity_decode($item_name),
-            'item_description' => html_entity_decode($item_description),
+            'item_name'        => $item_name,
+            'item_description' => $item_description,
             'custom_str1'      => $custom_str1
         ];
 
